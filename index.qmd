@@ -1,0 +1,279 @@
+---
+title: ""
+format: 
+  dashboard:
+    scrolling: true 
+theme: darkly
+execute: 
+  echo: false
+params:
+    userid: "schochastics"
+    highlight: "#DBAC34"
+    anti_color: "#DB5934"
+    bg_color: "#2D2D2D"
+    ignore_lang: "CSS,JavaScript,SCSS,HTML"
+---
+
+```{r}
+#| label: load_packages
+library("ghql")
+library("jsonlite")
+library("tidyverse")
+library("patchwork")
+library("reactable")
+source("helper.R")
+ignore_lang <- str_split(params$ignore_lang, ",")[[1]]
+```
+
+```{r}
+#| label: setup_data
+#| cache: true
+token <- Sys.getenv("GITHUB_TOKEN")
+con <- GraphqlClient$new(
+    url = "https://api.github.com/graphql",
+    headers = list(Authorization = paste0("Bearer ", token))
+)
+
+variables <- list(
+    userid = params$userid
+)
+
+con$load_schema()
+qry <- Query$new()
+qry$query(
+    "mydata", ' query getContrib($userid: String!){
+  user(login:$userid){
+    avatarUrl
+    login
+    contributionsCollection(
+    from: "2023-01-01T00:00:00.000Z"
+    to: "2024-01-01T00:00:00.000Z") {
+    totalCommitContributions
+    totalIssueContributions
+    totalRepositoryContributions
+    totalRepositoriesWithContributedCommits
+    totalPullRequestContributions
+    totalPullRequestReviewContributions
+    contributionCalendar {
+        totalContributions
+        weeks {
+            contributionDays {
+              contributionCount
+              date
+            }
+        }
+    }
+    commitContributionsByRepository {
+        contributions {
+            totalCount
+        }
+        repository {
+            name
+            owner {
+                login
+            }
+            isPrivate
+            languages(first: 5, orderBy: {field: SIZE, direction: DESC}) {
+                edges {
+                    size
+                    node {
+                        color
+                        name
+                        id
+                    }
+                }
+            }
+        }
+    }
+}
+  }
+}'
+)
+x <- con$exec(qry$queries$mydata, variables)
+res <- jsonlite::fromJSON(x)
+
+```
+
+```{r}
+#| label: prep_data
+
+contrib <- res$data$user$contributionsCollection$contributionCalendar$weeks
+tbl_contributions <- map_dfr(seq_len(nrow(contrib)), \(x) contrib[x, ][[1]])
+
+contrib_by_repo <- flatten_dfc(res$data$user$contributionsCollection$commitContributionsByRepository)
+
+most_lang <- count(bind_rows(contrib_by_repo$edges)$node, name) |>
+    filter(!name %in% ignore_lang) |>
+    top_n(3, n) |>
+    mutate(n = n / sum(n))
+
+tbl_contributions$wday <- lubridate::wday(tbl_contributions$date, label = TRUE, abbr = TRUE)
+tbl_contributions$week <- lubridate::week(tbl_contributions$date)
+
+fill_breaks <- pretty(tbl_contributions$contributionCount)
+fill_breaks[1] <- ifelse(fill_breaks[1] == 0, 1, fill_breaks[1])
+fill_breaks[length(fill_breaks)] <- max(tbl_contributions$contributionCount)
+streak <- (tbl_contributions$contributionCount != 0) + 0
+y <- rle(streak)
+streak_len <- max(y$lengths[y$values == 1])
+gap_len <- max(y$lengths[y$values == 0])
+wkend <- sum(
+    tbl_contributions$contributionCount[tbl_contributions$wday %in% c("Sun", "Sat")]
+) / sum(tbl_contributions$contributionCount)
+
+```
+
+## Row
+
+```{r}
+#| content: valuebox
+#| title: "Total Contributions"
+list(
+    icon = "stars",
+    color = params$highlight,
+    value = res$data$user$contributionsCollection$totalCommitContributions
+)
+```
+
+```{r}
+#| content: valuebox
+#| title: "Repositories created"
+list(
+    icon = "journal-arrow-up",
+    color = "#9BA7C0",
+    value = res$data$user$contributionsCollection$totalRepositoryContributions
+)
+```
+
+```{r}
+#| content: valuebox
+#| title: "Issues opened"
+list(
+    icon = "bullseye",
+    color = "#9BA7C0",
+    value = res$data$user$contributionsCollection$totalIssueContributions
+)
+```
+
+```{r}
+#| content: valuebox
+#| title: "Pull requests"
+list(
+    icon = "sign-merge-right",
+    color = "#9BA7C0",
+    value = res$data$user$contributionsCollection$totalPullRequestContributions
+)
+```
+
+## Row
+
+```{r}
+#| label: contrib-calendar
+#| title: Contribution Calendar
+p1 <- tbl_contributions |>
+    mutate(contributionCount = ifelse(contributionCount == 0, NA, contributionCount)) |>
+    ggplot(aes(x = week, y = fct_rev(wday))) +
+    geom_tile(aes(fill = contributionCount), size = 1, color = "white") +
+    # coord_fixed() +
+    scale_fill_gradient(breaks = fill_breaks, low = "#9BE9A8", high = "#216E39", name = "", na.value = "grey66") +
+    scale_x_continuous(breaks = NULL, name = "", limits = c(0, 53), expand = c(0, 0)) +
+    scale_y_discrete(labels = c("", "Fri", "", "Wed", "", "Mon", "")) +
+    theme_minimal() +
+    theme(
+        legend.position = "bottom",
+        legend.justification = "right",
+        legend.text = element_text(color = "white"),
+        axis.text = element_text(color = "white"),
+        axis.title.y = element_blank(),
+        panel.grid.major = element_blank(),
+        axis.ticks.y = element_blank()
+    ) +
+    guides(fill = guide_legend(
+        label.position = "bottom",
+        direction = "horizontal"
+    ))
+p2 <- donut_plot(streak_len, streak_len, params$highlight, "white") + labs(title = "longest streak")
+p3 <- donut_plot(gap_len, gap_len, params$anti_color, "white") + labs(title = "longest gap")
+p4 <- donut_plot(round(100 * wkend), 100, "#216E39", "white") + labs(title = "weekend contribs (%)")
+p5 <- donut_plot(sum(streak), 365, "#216E39", "white") + labs(title = "active days")
+p <- (p2 | p3 | p5 | p4) / p1 +
+    plot_annotation(theme = theme(
+        plot.background = element_rect(fill = params$bg_color, color = params$bg_color),
+        panel.background = element_rect(fill = params$bg_color)
+    ))
+p
+```
+
+```{r}
+#| label: contrib-repos
+#| title: Contribution to repositories
+contrib_by_repo |>
+    select(-edges) |>
+    filter(!isPrivate) |>
+    select(repo = name, login, contributions = totalCount) |>
+    reactable(theme = reactableTheme(backgroundColor = params$bg_color))
+```
+
+## Row
+
+```{r}
+#| label: bar-wdays
+#| title: Contributions by Weekday
+tbl_contributions |>
+    group_by(wday) |>
+    summarise(count = sum(contributionCount)) |>
+    mutate(type = case_when(
+        count == min(count) ~ "min",
+        count == max(count) ~ "max",
+        TRUE ~ "regular"
+    )) |>
+    ggplot(aes(x = wday, y = count)) +
+    geom_col(aes(fill = type), show.legend = FALSE) +
+    geom_text(aes(y = count / 2, label = count), color = params$bg_color) +
+    scale_fill_manual(values = c("min" = params$anti_color, "max" = params$highlight, "regular" = "white")) +
+    scale_x_discrete(labels = c("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat")) +
+    theme_minimal() +
+    theme(
+        plot.background = element_rect(fill = params$bg_color, color = "white"),
+        panel.background = element_rect(fill = params$bg_color),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.text.y = element_blank(),
+        axis.text.x = element_text(color = "white"),
+        axis.title = element_blank()
+    )
+```
+
+```{r}
+#| label: bar-month
+#| title: Contributions by Month
+tbl_contributions |>
+    mutate(month = lubridate::month(date, label = TRUE)) |>
+    group_by(month) |>
+    summarise(count = sum(contributionCount)) |>
+    mutate(type = case_when(
+        count == min(count) ~ "min",
+        count == max(count) ~ "max",
+        TRUE ~ "regular"
+    )) |>
+    ggplot(aes(x = month, y = count)) +
+    geom_col(aes(fill = type), show.legend = FALSE) +
+    geom_text(aes(y = count / 2, label = count), color = params$bg_color) +
+    scale_fill_manual(values = c("min" = params$anti_color, "max" = params$highlight, "regular" = "white")) +
+    theme_minimal() +
+    theme(
+        plot.background = element_rect(fill = params$bg_color, color = "white"),
+        panel.background = element_rect(fill = params$bg_color),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.text.y = element_blank(),
+        axis.text.x = element_text(color = "white"),
+        axis.title = element_blank()
+    )
+```
+
+## Row
+
+::: {.card title="Most Used Languages"}
+![](img/logos/C++.svg)
+:::
