@@ -1,4 +1,4 @@
-# 🚀🚀🚀 GITHUB Wrapped 2023 🚀🚀🚀
+# 🚀🚀🚀 GitHub Wrapped 2023 🚀🚀🚀
 
 Create a personal GitHub wrapped using Quarto Dashboards
 
