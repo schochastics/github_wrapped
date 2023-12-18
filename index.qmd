@@ -11,7 +11,7 @@ params:
     highlight: "#DBAC34"
     anti_color: "#DB5934"
     bg_color: "#2D2D2D"
-    ignore_lang: "CSS,JavaScript,SCSS,HTML"
+    ignore_lang: "CSS,JavaScript,SCSS,HTML,TeX"
 ---
 
 ```{r}
@@ -23,7 +23,6 @@ library("patchwork")
 library("reactable")
 source("helper.R")
 ignore_lang <- str_split(params$ignore_lang, ",")[[1]]
-
 ```
 
 ```{r}
@@ -93,6 +92,8 @@ qry$query(
 x <- con$exec(qry$queries$mydata, variables)
 res <- jsonlite::fromJSON(x)
 
+stargaze <- gh::gh("/users/{username}/starred", username = params$userid, .accept = "application/vnd.github.v3.star+json", per_page = 100)
+
 ```
 
 ```{r}
@@ -126,18 +127,27 @@ wkend <- sum(
     tbl_contributions$contributionCount[tbl_contributions$wday %in% c("Sun", "Sat")]
 ) / sum(tbl_contributions$contributionCount)
 
+stars <- map_dfr(stargaze, \(x) tibble(
+    starred_at = as.POSIXct(x$starred_at),
+    repo = x$repo$full_name,
+    descr = x$repo$description
+)) |>
+    filter(lubridate::year(starred_at) == 2023) |>
+    nrow()
+stars <- ifelse(stars == 100, "100+", stars)
 ```
 
 <h1 style="text-align:center;margin-bottom:0.15em"> 🚀🚀🚀 GitHub Wrapped 2023 🚀🚀🚀 </h1>
-<center>
-![](`r res$data$user$avatarUrl`){width=5em}
-</center>
+<span style="text-align:center">
+![](`r res$data$user$avatarUrl`){width=10em}
+</span>
 <h1 style="text-align:center;margin-top:0.15em"> `r params$userid` </h1>
 
-```{r}
-#| out-width: "75px"
-knitr::include_graphics(most_lang_img)
-```
+<center>
+![](`r most_lang_img[1]`){width=3em} 
+![](`r most_lang_img[2]`){width=3em}
+![](`r most_lang_img[3]`){width=3em}
+</center>
 
 ## Row
 
@@ -178,6 +188,16 @@ list(
     icon = "sign-merge-right",
     color = "#9BA7C0",
     value = res$data$user$contributionsCollection$totalPullRequestContributions
+)
+```
+
+```{r}
+#| content: valuebox
+#| title: "Stargazed"
+list(
+    icon = "star-fill",
+    color = "#9BA7C0",
+    value = stars
 )
 ```
 
@@ -287,9 +307,3 @@ tbl_contributions |>
         axis.title = element_blank()
     )
 ```
-
-## Row
-
-::: {.card title="Most Used Languages"}
-![](img/logos/C++.svg){height=50}
-:::
