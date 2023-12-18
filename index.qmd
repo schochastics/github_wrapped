@@ -1,5 +1,5 @@
 ---
-title: ""
+page-title: "GitHub Wrapped 2023"
 format: 
   dashboard:
     scrolling: true 
@@ -23,6 +23,7 @@ library("patchwork")
 library("reactable")
 source("helper.R")
 ignore_lang <- str_split(params$ignore_lang, ",")[[1]]
+
 ```
 
 ```{r}
@@ -105,7 +106,10 @@ contrib_by_repo <- flatten_dfc(res$data$user$contributionsCollection$commitContr
 most_lang <- count(bind_rows(contrib_by_repo$edges)$node, name) |>
     filter(!name %in% ignore_lang) |>
     top_n(3, n) |>
+    arrange(-n) |>
     mutate(n = n / sum(n))
+
+most_lang_img <- paste0("img/logos/", most_lang$name, ".svg")
 
 tbl_contributions$wday <- lubridate::wday(tbl_contributions$date, label = TRUE, abbr = TRUE)
 tbl_contributions$week <- lubridate::week(tbl_contributions$date)
@@ -113,7 +117,8 @@ tbl_contributions$week <- lubridate::week(tbl_contributions$date)
 fill_breaks <- pretty(tbl_contributions$contributionCount)
 fill_breaks[1] <- ifelse(fill_breaks[1] == 0, 1, fill_breaks[1])
 fill_breaks[length(fill_breaks)] <- max(tbl_contributions$contributionCount)
-streak <- (tbl_contributions$contributionCount != 0) + 0
+end <- min(Sys.Date(), as.Date("2023-12-31"))
+streak <- (tbl_contributions$contributionCount[tbl_contributions$date <= end] != 0) + 0
 y <- rle(streak)
 streak_len <- max(y$lengths[y$values == 1])
 gap_len <- max(y$lengths[y$values == 0])
@@ -121,6 +126,17 @@ wkend <- sum(
     tbl_contributions$contributionCount[tbl_contributions$wday %in% c("Sun", "Sat")]
 ) / sum(tbl_contributions$contributionCount)
 
+```
+
+<h1 style="text-align:center;margin-bottom:0.15em"> 🚀🚀🚀 GitHub Wrapped 2023 🚀🚀🚀 </h1>
+<center>
+![](`r res$data$user$avatarUrl`){width=5em}
+</center>
+<h1 style="text-align:center;margin-top:0.15em"> `r params$userid` </h1>
+
+```{r}
+#| out-width: "75px"
+knitr::include_graphics(most_lang_img)
 ```
 
 ## Row
@@ -206,7 +222,7 @@ p
 
 ```{r}
 #| label: contrib-repos
-#| title: Contribution to repositories
+#| title: Contributions to repositories
 contrib_by_repo |>
     select(-edges) |>
     filter(!isPrivate) |>
@@ -275,5 +291,5 @@ tbl_contributions |>
 ## Row
 
 ::: {.card title="Most Used Languages"}
-![](img/logos/C++.svg)
+![](img/logos/C++.svg){height=50}
 :::
