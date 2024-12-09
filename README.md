@@ -1,8 +1,8 @@
-# 🚀🚀🚀 GitHub Wrapped 2023 🚀🚀🚀
+# 🚀🚀🚀 GitHub Wrapped 🚀🚀🚀
 
 Create a personal GitHub wrapped using Quarto Dashboards
 
-![](schochastics.png)
+![](schochastics_2024.png)
 
 ## Setup
 
